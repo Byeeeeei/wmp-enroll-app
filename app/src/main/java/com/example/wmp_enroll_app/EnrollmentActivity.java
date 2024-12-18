@@ -11,6 +11,7 @@ import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.example.wmp_enroll_app.models.Subject;
 import com.example.wmp_enroll_app.models.Enrollment;
+import com.example.wmp_enroll_app.models.Student;
 import com.example.wmp_enroll_app.adapters.SubjectAdapter;
 import android.widget.TextView;
 import java.util.ArrayList;
@@ -61,13 +62,13 @@ public class EnrollmentActivity extends AppCompatActivity {
     private void checkExistingEnrollment() {
         FirebaseUser currentUser = mAuth.getCurrentUser();
         if (currentUser != null) {
-            db.collection("enrollments")
-                    .whereEqualTo("userId", currentUser.getUid())
+            db.collection("students")
+                    .document(currentUser.getUid())
                     .get()
-                    .addOnSuccessListener(queryDocumentSnapshots -> {
-                        if (!queryDocumentSnapshots.isEmpty()) {
+                    .addOnSuccessListener(documentSnapshot -> {
+                        if (documentSnapshot.exists()) {
                             // User already enrolled, show summary instead
-                            showEnrollmentSummary(queryDocumentSnapshots.getDocuments().get(0).toObject(Enrollment.class));
+                            showEnrollmentSummary(documentSnapshot.toObject(Student.class));
                         }
                     });
         }
@@ -131,22 +132,21 @@ public class EnrollmentActivity extends AppCompatActivity {
             return;
         }
 
-        // Create enrollment object
+        // Create list of enrolled subject IDs
         List<String> subjectIds = new ArrayList<>();
         for (Subject subject : selectedSubjects) {
             subjectIds.add(subject.getId());
         }
 
-        Enrollment enrollment = new Enrollment(
-                currentUser.getUid(),
-                subjectIds,
-                totalCredits
-        );
+        // Create or update student document
+        Student student = new Student(currentUser.getEmail(), currentUser.getDisplayName());
+        student.setEnrolledSubjects(subjectIds);
+        student.setTotalCredits(totalCredits);
 
         // Save to Firestore
-        db.collection("enrollments")
+        db.collection("students")
                 .document(currentUser.getUid())
-                .set(enrollment)
+                .set(student)
                 .addOnSuccessListener(aVoid -> {
                     Toast.makeText(this, "Enrollment successful!", Toast.LENGTH_SHORT).show();
                     finish();
@@ -156,15 +156,14 @@ public class EnrollmentActivity extends AppCompatActivity {
                 });
     }
 
-    private void showEnrollmentSummary(Enrollment enrollment) {
+    private void showEnrollmentSummary(Student student) {
         // Hide the selection UI and show summary instead
-        // You might want to create a separate layout for this
         enrollButton.setEnabled(false);
         
         // Filter subjects to show only enrolled ones
         List<Subject> enrolledSubjects = new ArrayList<>();
         for (Subject subject : subjects) {
-            if (enrollment.getEnrolledSubjects().contains(subject.getId())) {
+            if (student.getEnrolledSubjects().contains(subject.getId())) {
                 enrolledSubjects.add(subject);
             }
         }
@@ -174,7 +173,7 @@ public class EnrollmentActivity extends AppCompatActivity {
         subjectsRecyclerView.setAdapter(adapter);
 
         // Update credits info
-        creditsInfoText.setText(String.format("Total Enrolled Credits: %d", enrollment.getTotalCredits()));
+        creditsInfoText.setText(String.format("Total Enrolled Credits: %d", student.getTotalCredits()));
         
         // Update title
         TextView titleText = findViewById(R.id.titleText);
